@@ -1,56 +1,84 @@
 import streamlit as st
-from openai import OpenAI
+import pandas as pd
+import requests
+from io import StringIO
 
-# Show title and description.
-st.title("💬 Chatbot")
-st.write(
-    "This is a simple chatbot that uses OpenAI's GPT-3.5 model to generate responses. "
-    "To use this app, you need to provide an OpenAI API key, which you can get [here](https://platform.openai.com/account/api-keys). "
-    "You can also learn how to build this app step by step by [following our tutorial](https://docs.streamlit.io/develop/tutorials/llms/build-conversational-apps)."
-)
+# Función para calcular el dividendo
+def calcular_dividendo(precio_total, pie, tasa_interes, años):
+    monto_credito = precio_total - pie
+    tasa_mensual = tasa_interes / 12 / 100
+    n = años * 12
+    dividendo = (monto_credito * tasa_mensual) / (1 - (1 + tasa_mensual)**-n)
+    return dividendo
 
-# Ask user for their OpenAI API key via `st.text_input`.
-# Alternatively, you can store the API key in `./.streamlit/secrets.toml` and access it
-# via `st.secrets`, see https://docs.streamlit.io/develop/concepts/connections/secrets-management
-openai_api_key = st.text_input("OpenAI API Key", type="password")
-if not openai_api_key:
-    st.info("Please add your OpenAI API key to continue.", icon="🗝️")
-else:
+# Función ficticia para obtener el arriendo promedio
+def obtener_arriendo_promedio(metros_cuadrados, dormitorios, baños):
+    # Aquí se debería realizar una consulta a un API o web scraping para obtener los arriendos promedio
+    return 500000  # Valor ficticio
 
-    # Create an OpenAI client.
-    client = OpenAI(api_key=openai_api_key)
+st.title("Análisis de Inversión en Departamentos en Santiago")
 
-    # Create a session state variable to store the chat messages. This ensures that the
-    # messages persist across reruns.
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
+# Ruta al archivo preexistente
+archivo_csv = "/Users/tomasortiz/Documents/Magister Negocios Digitales/Inteligencia Artificial/departamentos_en_venta.csv"
 
-    # Display the existing chat messages via `st.chat_message`.
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+# Cargar archivo preexistente
+try:
+    df = pd.read_csv(archivo_csv)
+    st.write("Datos cargados exitosamente:")
+    st.write(df.head())
 
-    # Create a chat input field to allow the user to enter a message. This will display
-    # automatically at the bottom of the page.
-    if prompt := st.chat_input("What is up?"):
+    # Preguntas al usuario
+    pie_uf = st.number_input("¿Cuánto pie puedes pagar en UF?", min_value=0.0, step=0.1)
+    dividendo_esperado_clp = st.number_input("¿Cuál es el dividendo esperado para pagar en CLP?", min_value=0)
 
-        # Store and display the current prompt.
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
+    # Tasa hipotecaria de www.siii.cl
+    tasa_hipotecaria = 4.8  # Porcentaje ficticio, se debería obtener de manera dinámica
+    años_credito = 25
 
-        # Generate a response using the OpenAI API.
-        stream = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": m["role"], "content": m["content"]}
-                for m in st.session_state.messages
-            ],
-            stream=True,
-        )
+    # Procesar cada departamento y calcular la rentabilidad
+    resultados = []
+    for index, row in df.iterrows():
+        precio_total = row['Precio_total']
+        metros_cuadrados = row['Metros_cuadrados']
+        dormitorios = row['Dormitorios']
+        baños = row['Baños']
+        link = row['Link']
 
-        # Stream the response to the chat using `st.write_stream`, then store it in 
-        # session state.
-        with st.chat_message("assistant"):
-            response = st.write_stream(stream)
-        st.session_state.messages.append({"role": "assistant", "content": response})
+        # Convertir UF a CLP (suponiendo 1 UF = 30000 CLP)
+        precio_total_clp = precio_total * 37590
+        pie_clp = pie_uf * 37590
+
+        dividendo = calcular_dividendo(precio_total_clp, pie_clp, tasa_hipotecaria, años_credito)
+        arriendo_promedio = obtener_arriendo_promedio(metros_cuadrados, dormitorios, baños)
+
+        rentabilidad = (arriendo_promedio - dividendo) / dividendo
+
+        resultado = {
+            "Precio total (UF)": precio_total,
+            "Pie a pagar (UF)": pie_uf,
+            "Metros cuadrados": metros_cuadrados,
+            "Dormitorios": dormitorios,
+            "Baños": baños,
+            "Dividendo mensual (CLP)": dividendo,
+            "Dividendo mensual (UF)": dividendo / 30000,
+            "Arriendo promedio (CLP)": arriendo_promedio,
+            "Rentabilidad esperada": rentabilidad,
+            "Link": link
+        }
+
+        resultados.append(resultado)
+
+    resultados_df = pd.DataFrame(resultados)
+    st.subheader("Resultados")
+    st.write(resultados_df)
+
+    # Descargar resultados
+    st.download_button(
+        label="Descargar resultados",
+        data=StringIO(resultados_df.to_csv(index=False)),
+        file_name="resultados_inversion.csv",
+        mime="text/csv"
+    )
+
+except FileNotFoundError:
+    st.error("El archivo no se encontró. Por favor verifica la ruta al archivo.")
